@@ -31,7 +31,7 @@ def home():
         sentiment_label = sentiment_map.get(prediction, "Unknown")
 
         # Store the result
-        result = {"label": sentiment_label, "score": f"{confidence:.2f}"}  # Round confidence
+        result = {"label": sentiment_label, "score": round(confidence, 5)}  # confidence
 
     return render_template('index.html', result=result, text=text if request.method == 'POST' else '')
 
