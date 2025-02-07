@@ -5,40 +5,107 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sentiment Analysis</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 50px;
-        }
-
-        .container {
-            max-width: 600px;
-            margin: auto;
-        }
-
-        textarea {
-            width: 100%;
-            height: 150px;
-            padding: 10px;
-            font-size: 16px;
-        }
-
-        .result {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #f4f4f4;
-            border-radius: 5px;
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="style.css">
 </head>
+<style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        background-color: #f0f2f5;
+        color: #333;
+        margin: 50px;
+    }
+
+    .container {
+        max-width: 600px;
+        margin: auto;
+        background: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+        text-align: center;
+        color: #4CAF50;
+    }
+
+    textarea {
+        width: 100%;
+        height: 150px;
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+
+    button {
+        width: fit-content;
+        padding: 10px;
+        font-size: 16px;
+        color: #fff;
+        background-color: #4CAF50;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    button:disabled {
+        background-color: #9E9E9E;
+        cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
+        background-color: #45A049;
+    }
+
+    .result {
+        margin-top: 20px;
+        padding: 20px;
+        background-color: #f4f4f4;
+        border-radius: 5px;
+        border-left: 5px solid #4CAF50;
+    }
+
+    .result h2 {
+        margin-bottom: 10px;
+    }
+
+    .result p {
+        margin: 5px 0;
+    }
+
+    .result p strong {
+        display: inline-block;
+        width: 100px;
+    }
+
+    .result p::before {
+        content: url('https://img.icons8.com/ios-filled/50/000000/sentiment-analysis.png');
+        vertical-align: middle;
+        margin-right: 10px;
+    }
+</style>
 
 <body>
     <div class="container">
         <h1>Sentiment Analysis</h1>
         <form method="POST">
-            <textarea name="text" placeholder="Enter your text here...">{{ text if text else '' }}</textarea>
+            <textarea id="inputText" name="text"
+                placeholder="Enter your text here...">{{ text if text else '' }}</textarea>
             <br><br>
-            <button type="submit">Analyze</button>
+            <button type="submit" id="submitText">Analyze</button>
         </form>
 
         {% if result %}
@@ -50,6 +117,20 @@
         {% endif %}
 
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const inputText = document.getElementById('inputText');
+            const submitButton = document.getElementById('submitText');
+
+            function toggleButtonState() {
+                submitButton.disabled = inputText.value.trim() === '';
+            }
+
+            inputText.addEventListener('input', toggleButtonState);
+
+            toggleButtonState();
+        });
+    </script>
 </body>
 
 </html>
