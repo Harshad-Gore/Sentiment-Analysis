@@ -3,6 +3,9 @@ import pickle
 import pandas as pd
 import os
 import io
+from fpdf import FPDF
+import matplotlib.pyplot as plt
+import tempfile
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Needed for session
@@ -122,6 +125,68 @@ def download_report():
     if last_csv_report:
         return send_file(io.BytesIO(last_csv_report.encode()), mimetype='text/csv', as_attachment=True, download_name='sentiment_report.csv')
     return redirect(url_for('home'))
+
+@app.route('/download_pdf_report')
+def download_pdf_report():
+    batch_results = session.get('batch_results')
+    analytics = session.get('analytics')
+    chart_data = session.get('chart_data')
+    if not batch_results or not analytics or not chart_data:
+        return redirect(url_for('home'))
+    # Generate pie chart image
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmpfile:
+        labels = list(chart_data.keys())
+        sizes = list(chart_data.values())
+        colors = ['#4CAF50', '#FFC107', '#F44336']
+        plt.figure(figsize=(4, 4))
+        plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+        plt.title('Sentiment Distribution')
+        plt.tight_layout()
+        plt.savefig(tmpfile.name)
+        plt.close()
+        chart_path = tmpfile.name
+    # Prepare PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'Product Review Sentiment Report', ln=True, align='C')
+    pdf.ln(10)
+    pdf.set_font('Arial', '', 12)
+    pdf.cell(0, 10, f"Total Reviews: {analytics['total']}", ln=True)
+    pdf.cell(0, 10, f"Positive: {analytics['positive_pct']}%", ln=True)
+    pdf.cell(0, 10, f"Neutral: {analytics['neutral_pct']}%", ln=True)
+    pdf.cell(0, 10, f"Negative: {analytics['negative_pct']}%", ln=True)
+    pdf.cell(0, 10, f"Average Confidence: {analytics['avg_conf']}", ln=True)
+    pdf.ln(5)
+    pdf.image(chart_path, x=60, w=90)
+    pdf.ln(10)
+    # Add top 3 positive and negative reviews
+    positives = [r for r in batch_results if r['label'].startswith('Positive')]
+    negatives = [r for r in batch_results if r['label'].startswith('Negative')]
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'Top Positive Reviews:', ln=True)
+    pdf.set_font('Arial', '', 11)
+    for r in positives[:3]:
+        pdf.multi_cell(0, 8, f"- {r['text']}")
+    pdf.ln(2)
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'Top Negative Reviews:', ln=True)
+    pdf.set_font('Arial', '', 11)
+    for r in negatives[:3]:
+        pdf.multi_cell(0, 8, f"- {r['text']}")
+    # Output PDF
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as pdf_file:
+        pdf.output(pdf_file.name)
+        pdf_file.seek(0)
+        pdf_bytes = pdf_file.read()
+    os.remove(chart_path)
+    os.remove(pdf_file.name)
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name='sentiment_report.pdf'
+    )
 
 last_csv_report = None
 

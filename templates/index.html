@@ -169,7 +169,8 @@
                 <li class="list-group-item">Negative: <strong>{{ analytics.negative_pct }}%</strong></li>
                 <li class="list-group-item">Average Confidence: <strong>{{ analytics.avg_conf }}</strong></li>
             </ul>
-            <a href="/download_report" class="btn btn-outline-primary">Download CSV Report</a>
+            <a href="/download_report" class="btn btn-outline-primary me-2">Download CSV Report</a>
+            <a href="/download_pdf_report" class="btn btn-outline-danger">Download PDF Report</a>
         </div>
         {% endif %}
         {% if chart_data %}
