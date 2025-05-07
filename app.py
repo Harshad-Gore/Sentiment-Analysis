@@ -1,7 +1,11 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, redirect, url_for, send_file, session
 import pickle
+import pandas as pd
+import os
+import io
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key_here'  # Needed for session
 
 # Load trained model & vectorizer
 with open("sentiment_model.pkl", "rb") as f:
@@ -11,30 +15,115 @@ with open("tfidf_vectorizer.pkl", "rb") as f:
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
-    result = None  # Default value
-
+    result = session.get('result')
+    text = session.get('text', '')
+    text_error = None
+    text_submitted = False
     if request.method == 'POST':
-        text = request.form['text']
-        
-        # Transform input using TF-IDF
-        text_vectorized = vectorizer.transform([text])
+        text_submitted = True
+        if 'text' in request.form:
+            text = request.form['text']
+            if not text.strip():
+                text_error = 'Please enter some text for analysis.'
+                session['result'] = None
+                session['text'] = ''
+            else:
+                text_vectorized = vectorizer.transform([text])
+                prediction = model.predict(text_vectorized)[0]
+                probabilities = model.predict_proba(text_vectorized)
+                confidence = max(probabilities[0])
+                sentiment_map = {1: "Positive 😀", 0: "Neutral 😐", -1: "Negative 😞"}
+                sentiment_label = sentiment_map.get(prediction, "Unknown")
+                result = {"label": sentiment_label, "score": round(confidence, 5)}
+                session['result'] = result
+                session['text'] = text
+    batch_results = session.get('batch_results')
+    chart_data = session.get('chart_data')
+    analytics = session.get('analytics')
+    batch_error = None
+    batch_submitted = False
+    return render_template('index.html', result=result, text=text, batch_results=batch_results, chart_data=chart_data, text_error=text_error, batch_error=batch_error, analytics=analytics, text_submitted=text_submitted, batch_submitted=batch_submitted)
 
-        # Predict sentiment and probability
-        prediction = model.predict(text_vectorized)[0]
-        probabilities = model.predict_proba(text_vectorized)
+@app.route('/batch', methods=['GET', 'POST'])
+def batch():
+    batch_results = None
+    chart_data = None
+    batch_error = None
+    analytics = None
+    batch_submitted = False
+    if request.method == 'POST':
+        batch_submitted = True
+        if 'csv_file' not in request.files:
+            batch_error = 'No file part. Please upload a CSV file.'
+        else:
+            file = request.files['csv_file']
+            if file.filename == '':
+                batch_error = 'No file selected. Please choose a CSV file to upload.'
+            elif not file.filename.lower().endswith('.csv'):
+                batch_error = 'Invalid file type. Please upload a valid CSV file.'
+            else:
+                try:
+                    df = pd.read_csv(file)
+                    text_col = df.columns[0]
+                    texts = df[text_col].astype(str).tolist()
+                    text_vectors = vectorizer.transform(texts)
+                    predictions = model.predict(text_vectors)
+                    probabilities = model.predict_proba(text_vectors)
+                    sentiment_map = {1: "Positive 😀", 0: "Neutral 😐", -1: "Negative 😞"}
+                    batch_results = []
+                    sentiment_counts = {"Positive 😀": 0, "Neutral 😐": 0, "Negative 😞": 0}
+                    confidences = []
+                    for i, text in enumerate(texts):
+                        pred = predictions[i]
+                        prob = max(probabilities[i])
+                        label = sentiment_map.get(pred, "Unknown")
+                        batch_results.append({
+                            'text': text,
+                            'label': label,
+                            'score': round(prob, 5)
+                        })
+                        confidences.append(prob)
+                        if label in sentiment_counts:
+                            sentiment_counts[label] += 1
+                    chart_data = sentiment_counts
+                    total = sum(sentiment_counts.values())
+                    analytics = {
+                        'total': total,
+                        'positive_pct': round(sentiment_counts["Positive 😀"] / total * 100, 2) if total else 0,
+                        'neutral_pct': round(sentiment_counts["Neutral 😐"] / total * 100, 2) if total else 0,
+                        'negative_pct': round(sentiment_counts["Negative 😞"] / total * 100, 2) if total else 0,
+                        'avg_conf': round(sum(confidences) / len(confidences), 4) if confidences else 0
+                    }
+                    # Save batch results to CSV in memory for download
+                    df_report = pd.DataFrame(batch_results)
+                    csv_buffer = io.StringIO()
+                    df_report.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    global last_csv_report
+                    last_csv_report = csv_buffer.getvalue()
+                    # Store in session
+                    session['batch_results'] = batch_results
+                    session['chart_data'] = chart_data
+                    session['analytics'] = analytics
+                except Exception as e:
+                    batch_error = f"Error processing file: {str(e)}"
+                    session['batch_results'] = None
+                    session['chart_data'] = None
+                    session['analytics'] = None
+    result = session.get('result')
+    text = session.get('text', '')
+    text_error = None
+    text_submitted = False
+    return render_template('index.html', result=result, text=text, batch_results=batch_results, chart_data=chart_data, text_error=text_error, batch_error=batch_error, analytics=analytics, text_submitted=text_submitted, batch_submitted=batch_submitted)
 
-        # Extract confidence score for the predicted class
-        confidence = max(probabilities[0])  # Get the highest probability score
+@app.route('/download_report')
+def download_report():
+    global last_csv_report
+    if last_csv_report:
+        return send_file(io.BytesIO(last_csv_report.encode()), mimetype='text/csv', as_attachment=True, download_name='sentiment_report.csv')
+    return redirect(url_for('home'))
 
-        # Map sentiment values
-        sentiment_map = {1: "Positive 😀", 0: "Neutral 😐", -1: "Negative 😞"}
-        sentiment_label = sentiment_map.get(prediction, "Unknown")
-
-        # Store the result
-        result = {"label": sentiment_label, "score": round(confidence, 5)}  # confidence
-
-    return render_template('index.html', result=result, text=text if request.method == 'POST' else '')
-
+last_csv_report = None
 
 if __name__ == '__main__':
     app.run(debug=True)

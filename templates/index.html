@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sentiment Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
@@ -21,16 +22,16 @@
         font-family: 'Roboto', sans-serif;
         background-color: #f0f2f5;
         color: #333;
-        margin: 50px;
+        margin: 50px 0;
     }
 
     .container {
-        max-width: 600px;
+        max-width: 700px;
         margin: auto;
         background: #fff;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        padding: 30px 30px 20px 30px;
+        border-radius: 12px;
+        box-shadow: 0 0 16px rgba(0, 0, 0, 0.08);
     }
 
     h1 {
@@ -70,10 +71,10 @@
     }
 
     .result {
-        margin-top: 20px;
+        margin-top: 24px;
         padding: 20px;
-        background-color: #f4f4f4;
-        border-radius: 5px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
         border-left: 5px solid #4CAF50;
     }
 
@@ -95,27 +96,92 @@
         vertical-align: middle;
         margin-right: 10px;
     }
+
+    .table thead th {
+        background: #e9ecef;
+    }
 </style>
 
 <body>
-    <div class="container">
-        <h1>Sentiment Analysis</h1>
-        <form method="POST">
-            <textarea id="inputText" name="text"
-                placeholder="Enter your text here...">{{ text if text else '' }}</textarea>
-            <br><br>
-            <button type="submit" id="submitText">Analyze</button>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4 text-success">Sentiment Analysis</h1>
+        <form method="POST" class="mb-4">
+            <div class="mb-3">
+                <textarea id="inputText" name="text" class="form-control" rows="4"
+                    placeholder="Enter your text here...">{{ text if text else '' }}</textarea>
+            </div>
+            <button type="submit" id="submitText" class="btn btn-success">Analyze</button>
         </form>
 
+        {% if text_submitted and text_error and text_error|length > 0 %}
+        <div class="alert alert-danger mt-3"> <strong>Error:</strong> {{ text_error }} </div>
+        {% endif %}
         {% if result %}
         <div class="result">
-            <h2>Result:</h2>
+            <h2 class="h6">Result:</h2>
             <p><strong>Sentiment:</strong> {{ result.label }}</p>
             <p><strong>Confidence:</strong> {{ result.score }}</p>
         </div>
         {% endif %}
+        <hr class="my-4">
+        <h2 class="h5 mb-3">Batch Analysis (CSV Upload)</h2>
+        <form method="POST" action="/batch" enctype="multipart/form-data" class="mb-3">
+            <div class="input-group mb-2">
+                <input type="file" name="csv_file" accept=".csv" class="form-control" required>
+                <button type="submit" class="btn btn-primary">Upload & Analyze</button>
+            </div>
+        </form>
+        {% if batch_submitted and batch_error and batch_error|length > 0 %}
+        <div class="alert alert-danger mt-3"> <strong>Error:</strong> {{ batch_error }} </div>
+        {% endif %}
+        {% if batch_results %}
+        <div class="result">
+            <h2 class="h6">Batch Results:</h2>
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped align-middle mt-2">
+                    <thead>
+                        <tr>
+                            <th>Text</th>
+                            <th>Sentiment</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in batch_results %}
+                        <tr>
+                            <td>{{ row.text }}</td>
+                            <td>{{ row.label }}</td>
+                            <td>{{ row.score }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+        {% if analytics %}
+        <div class="result">
+            <h2 class="h6">Batch Analytics</h2>
+            <ul class="list-group mb-3">
+                <li class="list-group-item">Total Reviews: <strong>{{ analytics.total }}</strong></li>
+                <li class="list-group-item">Positive: <strong>{{ analytics.positive_pct }}%</strong></li>
+                <li class="list-group-item">Neutral: <strong>{{ analytics.neutral_pct }}%</strong></li>
+                <li class="list-group-item">Negative: <strong>{{ analytics.negative_pct }}%</strong></li>
+                <li class="list-group-item">Average Confidence: <strong>{{ analytics.avg_conf }}</strong></li>
+            </ul>
+            <a href="/download_report" class="btn btn-outline-primary">Download CSV Report</a>
+        </div>
+        {% endif %}
+        {% if chart_data %}
+        <div class="result">
+            <h2 class="h6">Sentiment Distribution</h2>
+            <canvas id="sentimentChart" width="400" height="200"></canvas>
+        </div>
+        {% endif %}
 
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const inputText = document.getElementById('inputText');
@@ -129,6 +195,32 @@
 
             toggleButtonState();
         });
+
+        {% if chart_data %}
+        const ctx = document.getElementById('sentimentChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: {{ chart_data.keys()|list|tojson }},
+                datasets: [{
+                    data: {{ chart_data.values()|list|tojson }},
+                    backgroundColor: [
+                        '#4CAF50', // Positive
+                        '#FFC107', // Neutral
+                        '#F44336'  // Negative
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                }
+            }
+        });
+        {% endif %}
     </script>
 </body>
 
