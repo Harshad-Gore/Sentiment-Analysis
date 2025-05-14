@@ -6,6 +6,7 @@ import io
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 import tempfile
+from wordcloud import WordCloud
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Needed for session
@@ -145,6 +146,38 @@ def download_pdf_report():
         plt.savefig(tmpfile.name)
         plt.close()
         chart_path = tmpfile.name
+    # Generate bar chart image
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as barfile:
+        plt.figure(figsize=(4, 3))
+        plt.bar(labels, sizes, color=colors)
+        plt.title('Sentiment Counts')
+        plt.ylabel('Count')
+        plt.tight_layout()
+        plt.savefig(barfile.name)
+        plt.close()
+        bar_path = barfile.name
+    # Generate word clouds
+    positives = [r['text'] for r in batch_results if r['label'].startswith('Positive')]
+    negatives = [r['text'] for r in batch_results if r['label'].startswith('Negative')]
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as pos_wc_file:
+        if positives:
+            wc = WordCloud(width=400, height=200, background_color='white').generate(' '.join(positives))
+            wc.to_file(pos_wc_file.name)
+            pos_wc_path = pos_wc_file.name
+        else:
+            pos_wc_path = None
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as neg_wc_file:
+        if negatives:
+            wc = WordCloud(width=400, height=200, background_color='white').generate(' '.join(negatives))
+            wc.to_file(neg_wc_file.name)
+            neg_wc_path = neg_wc_file.name
+        else:
+            neg_wc_path = None
+    # Most common words overall
+    from collections import Counter
+    all_words = ' '.join([r['text'] for r in batch_results]).split()
+    common_words = Counter([w.lower().strip('.,!?') for w in all_words if len(w) > 2])
+    most_common = ', '.join([f"{w} ({c})" for w, c in common_words.most_common(10)])
     # Prepare PDF
     pdf = FPDF()
     pdf.add_page()
@@ -158,28 +191,55 @@ def download_pdf_report():
     pdf.cell(0, 10, f"Negative: {analytics['negative_pct']}%", ln=True)
     pdf.cell(0, 10, f"Average Confidence: {analytics['avg_conf']}", ln=True)
     pdf.ln(5)
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'Most Common Words:', ln=True)
+    pdf.set_font('Arial', '', 11)
+    pdf.multi_cell(0, 8, most_common)
+    pdf.ln(5)
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'Sentiment Distribution:', ln=True)
     pdf.image(chart_path, x=60, w=90)
+    pdf.ln(5)
+    pdf.cell(0, 10, 'Sentiment Counts:', ln=True)
+    pdf.image(bar_path, x=60, w=90)
     pdf.ln(10)
+    if pos_wc_path:
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 10, 'Word Cloud (Positive Reviews):', ln=True)
+        pdf.image(pos_wc_path, x=30, w=150)
+        pdf.ln(5)
+    if neg_wc_path:
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 10, 'Word Cloud (Negative Reviews):', ln=True)
+        pdf.image(neg_wc_path, x=30, w=150)
+        pdf.ln(5)
     # Add top 3 positive and negative reviews
-    positives = [r for r in batch_results if r['label'].startswith('Positive')]
-    negatives = [r for r in batch_results if r['label'].startswith('Negative')]
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'Top Positive Reviews:', ln=True)
     pdf.set_font('Arial', '', 11)
-    for r in positives[:3]:
-        pdf.multi_cell(0, 8, f"- {r['text']}")
+    for r in batch_results:
+        if r['label'].startswith('Positive'):
+            pdf.multi_cell(0, 8, f"- {r['text']}")
+            if sum(1 for x in batch_results if x['label'].startswith('Positive') and x['text'] == r['text']) >= 3:
+                break
     pdf.ln(2)
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'Top Negative Reviews:', ln=True)
     pdf.set_font('Arial', '', 11)
-    for r in negatives[:3]:
-        pdf.multi_cell(0, 8, f"- {r['text']}")
+    for r in batch_results:
+        if r['label'].startswith('Negative'):
+            pdf.multi_cell(0, 8, f"- {r['text']}")
+            if sum(1 for x in batch_results if x['label'].startswith('Negative') and x['text'] == r['text']) >= 3:
+                break
     # Output PDF
     with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as pdf_file:
         pdf.output(pdf_file.name)
         pdf_file.seek(0)
         pdf_bytes = pdf_file.read()
-    os.remove(chart_path)
+    # Clean up temp files
+    for path in [chart_path, bar_path, pos_wc_path, neg_wc_path]:
+        if path and os.path.exists(path):
+            os.remove(path)
     os.remove(pdf_file.name)
     return send_file(
         io.BytesIO(pdf_bytes),
